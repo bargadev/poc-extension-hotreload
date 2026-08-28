@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import './App.css';
 
 const STORAGE_KEY = 'meet-sidebar-notes';
 
