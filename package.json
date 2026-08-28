@@ -1,0 +1,12 @@
+{
+  "name": "poc-extension-hotreload",
+  "version": "1.0.0",
+  "description": "Chrome extension POC with hot reload via WebSocket",
+  "scripts": {
+    "dev": "node dev-server/server.js"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Hot Reload POC",
+  "version": "1.0.0",
+  "description": "POC Chrome extension with hot reload",
+  "permissions": ["alarms", "storage"],
+  "host_permissions": ["http://localhost/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Hot Reload POC"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      width: 240px;
+      padding: 16px;
+      margin: 0;
+    }
+    h2 { margin: 0 0 8px; font-size: 16px; }
+    p { margin: 0; font-size: 13px; color: #555; }
+    .badge {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 3px 8px;
+      background: #22c55e;
+      color: #fff;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <h2>Hot Reload POC - Test</h2>
+  <p>Edit any file in <code>extension/</code> and save — the extension reloads automatically.</p>
+  <div class="badge" id="status">loading...</div>
+  <script src="popup.js"></script>
+</body>
+</html>
