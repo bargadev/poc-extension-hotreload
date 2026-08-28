@@ -12,12 +12,7 @@ declare global {
 
 let layoutObserver: MutationObserver | null = null;
 
-function conflictingSidebarActive() {
-  return !!document.getElementById('tactiq-content-div');
-}
-
 function applyMeetLayout() {
-  if (conflictingSidebarActive()) return;
   const wrapper = document.querySelector('[data-cid="call-screen-wrapper"]:nth-child(1)') as HTMLElement | null;
   if (wrapper && wrapper.style.paddingRight !== '320px') {
     wrapper.style.setProperty('padding-right', '320px', 'important');
@@ -50,7 +45,7 @@ function injectShell() {
   });
   document.body.appendChild(sidebar);
 
-  if (!document.getElementById(STYLE_ID) && !conflictingSidebarActive()) {
+  if (!document.getElementById(STYLE_ID)) {
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = [
