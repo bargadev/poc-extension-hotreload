@@ -3,10 +3,21 @@
   "version": "1.0.0",
   "description": "Chrome extension POC with hot reload via WebSocket",
   "scripts": {
-    "dev": "node dev-server/server.js"
+    "dev": "concurrently \"vite build --watch\" \"node dev-server/server.js\"",
+    "build": "vite build"
   },
   "dependencies": {
     "chokidar": "^3.6.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.4",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.3"
   }
 }
