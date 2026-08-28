@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import App from './App';
+import appStyles from './App.css?inline';
 
 const SIDEBAR_ID = 'ext-meet-sidebar';
 const STYLE_ID   = 'ext-meet-style';
@@ -49,6 +50,7 @@ function injectShell() {
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = [
+      appStyles,
       `body { background: #141414 !important; }`,
       `.crqnQb { max-width: calc(100% - 320px); }`,
       `#root { width: calc(100% - 324px) !important; }`,

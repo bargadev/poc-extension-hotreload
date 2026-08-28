@@ -1,0 +1,43 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: system-ui, sans-serif;
+  color: #e0e0e0;
+  padding: 16px;
+  box-sizing: border-box;
+  gap: 8px;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.sidebar-saved {
+  font-size: 11px;
+  color: #6dcc6d;
+}
+
+.sidebar-textarea {
+  flex: 1;
+  resize: none;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.6;
+  padding: 10px 12px;
+  outline: none;
+  box-sizing: border-box;
+}
