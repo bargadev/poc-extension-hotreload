@@ -48,7 +48,7 @@ export default function Sidebar() {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600, letterSpacing: 0.2 }}>
-          NOTAS
+          NOTASs
         </h2>
         <p>xpto</p>
         {saved && (

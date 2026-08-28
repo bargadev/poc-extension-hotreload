@@ -29,7 +29,31 @@ function isMeetCall(url) {
   return url && /meet\.google\.com\/[a-z]/.test(url);
 }
 
+function injectViewportOverride(tabId) {
+  chrome.scripting.executeScript({
+    target: { tabId },
+    world:  'MAIN',
+    func:   () => {
+      if (window.__extMeetViewportOverride) return;
+      window.__extMeetViewportOverride = true;
+      const desc = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+      const orig = desc?.get;
+      Object.defineProperty(window, 'innerWidth', {
+        get() {
+          const w = orig ? orig.call(window) : (desc?.value ?? screen.width);
+          return document.body.classList.contains('ext-sidebar-on') ? w - 320 : w;
+        },
+        configurable: true,
+      });
+      const ret = () => window.innerWidth;
+      document.documentElement.__defineGetter__?.('clientWidth', ret);
+      document.body.__defineGetter__?.('clientWidth', ret);
+    },
+  }).catch((e) => console.warn('[MeetSidebar] viewport override failed:', e.message));
+}
+
 function injectSidebar(tabId) {
+  injectViewportOverride(tabId);
   chrome.scripting.executeScript({
     target: { tabId },
     files:  ['googlemeet.inline.js'],
