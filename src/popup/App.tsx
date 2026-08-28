@@ -26,7 +26,7 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', width: 240, padding: 16, margin: 0 }}>
-      <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>Hot Reload POC — React</h2>
+      <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>Hot Reload POC — React 2</h2>
       <p style={{ margin: 0, fontSize: 13, color: '#555' }}>
         Edit <code>src/popup/App.tsx</code> and save — extension reloads automatically.
       </p>
