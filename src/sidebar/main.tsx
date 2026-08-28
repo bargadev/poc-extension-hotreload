@@ -39,7 +39,7 @@ function injectShell() {
   Object.assign(sidebar.style, {
     position:   'fixed',
     right:      '0px',
-    top:        '60px',
+    top:        '16px',
     bottom:     '80px',
     width:      '320px',
     zIndex:     '100001',
@@ -53,7 +53,11 @@ function injectShell() {
   if (!document.getElementById(STYLE_ID) && !tactiqActive()) {
     const style = document.createElement('style');
     style.id = STYLE_ID;
-    style.textContent = `[data-cid="call-screen-wrapper"]:nth-child(1) { padding-right: 320px !important; }`;
+    style.textContent = [
+      `body { background: #141414 !important; }`,
+      `.crqnQb { max-width: calc(100% - 320px); }`,
+      `#root { width: calc(100% - 324px) !important; }`,
+    ].join('\n');
     document.head.appendChild(style);
   }
 
