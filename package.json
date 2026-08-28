@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "Chrome extension POC with hot reload via WebSocket",
   "scripts": {
-    "dev": "concurrently \"vite build --watch\" \"node dev-server/server.js\"",
-    "build": "vite build"
+    "dev": "concurrently \"vite build --watch --config vite.popup.config.ts\" \"vite build --watch --config vite.sidebar.config.ts\" \"node dev-server/server.js\"",
+    "build": "vite build --config vite.popup.config.ts && vite build --config vite.sidebar.config.ts"
   },
   "dependencies": {
     "chokidar": "^3.6.0",

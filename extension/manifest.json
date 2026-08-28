@@ -1,20 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "Hot Reload POC",
+  "name": "Meet Sidebar",
   "version": "1.0.0",
-  "description": "POC Chrome extension with hot reload",
-  "permissions": ["alarms", "storage"],
-  "host_permissions": ["http://localhost/*"],
+  "description": "Google Meet sidebar with editable notes",
+  "permissions": ["alarms", "storage", "scripting", "tabs"],
+  "host_permissions": ["http://localhost/*", "https://meet.google.com/*"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Hot Reload POC"
+    "default_title": "Meet Sidebar"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["https://meet.google.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
