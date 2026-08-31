@@ -1,0 +1,10 @@
+{
+  "id": "session-2026-08-29T01-15-25",
+  "createdAt": "2026-08-29T01:15:25.364Z",
+  "prompt": "ola",
+  "backend": "opus",
+  "iterations": 1,
+  "toolCalls": [],
+  "finalResponse": "Olá. O que precisa no projeto?",
+  "durationMs": 10145
+}

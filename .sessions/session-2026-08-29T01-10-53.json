@@ -1,0 +1,10 @@
+{
+  "id": "session-2026-08-29T01-10-53",
+  "createdAt": "2026-08-29T01:10:53.599Z",
+  "prompt": "what is a closure",
+  "backend": "local",
+  "iterations": 1,
+  "toolCalls": [],
+  "finalResponse": "Can you explain what a closure is in JavaScript?",
+  "durationMs": 411
+}

@@ -38,23 +38,11 @@ const CAPTION_LANGUAGE_LABEL   = 'Português (Brasil)';
 const OPEN_CC_SETTINGS_LABELS  = ['Abrir configurações de legenda', 'Open caption settings'];
 const LANGUAGE_OPTION_SELECTOR = `li[aria-label="${CAPTION_LANGUAGE_LABEL}"]`;
 
-// When captions are on, Meet renders the overlay over the video. We hide it so the
-// meeting looks clean (transcript lives only in the sidebar) — same as Tactiq.
-// opacity:0 keeps the nodes rendered & updated, so the MutationObserver still reads them.
-const HIDE_OVERLAY_STYLE_ID = 'ext-hide-cc-overlay';
-
 // Captions must stay ON for us to read them, but Meet highlights the CC toolbar button
 // with a blue pill (bg rgb(168,199,250)) while active. Tactiq keeps the button looking
-// inactive, so we restyle it back to the neutral (transparent) toolbar look.
+// inactive, so we restyle it back to the neutral (transparent) toolbar look. The caption
+// overlay itself is left native/visible (matches Tactiq — confirmed with the user 2026-08-31).
 const CC_BUTTON_STYLE_ID = 'ext-neutralize-cc-button';
-
-// Whenever captions are on, Meet reserves a ~304px band at the bottom of the video <main>
-// for the caption overlay (a fixed JS reservation — verified live 2026-08 it does NOT
-// shrink when the overlay is display:none or has height 0). Since we hide the overlay, that
-// band is just empty space that pushes the video up. We reclaim it so the video fills the
-// area like it does with captions off — this is why the layout looks "clean" in Tactiq,
-// which doesn't use Meet's native captions and so never triggers the reservation.
-const RECLAIM_LAYOUT_STYLE_ID = 'ext-reclaim-caption-band';
 
 function now(): string {
   return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -118,15 +106,6 @@ function tryEnableCaptions(): boolean {
   return true;
 }
 
-function hideCaptionOverlay() {
-  if (document.getElementById(HIDE_OVERLAY_STYLE_ID)) return;
-  const style = document.createElement('style');
-  style.id = HIDE_OVERLAY_STYLE_ID;
-  style.textContent = CONTAINER_SELECTORS.join(', ') +
-    ' { opacity: 0 !important; pointer-events: none !important; }';
-  document.head.appendChild(style);
-}
-
 // Make the (still-active) CC button look inactive, like Tactiq: strip the blue active
 // pill and use the neutral toolbar icon color. Captions keep working underneath.
 function neutralizeCcButton() {
@@ -138,23 +117,6 @@ function neutralizeCcButton() {
     .join(', ') +
     ' { background-color: transparent !important; color: #e3e3e3 !important; }';
   document.head.appendChild(style);
-}
-
-// Reclaim the caption-reserved band so the video is not pushed up (see RECLAIM_LAYOUT_STYLE_ID).
-// Two rules are needed: grow <main> back down, AND stretch the participant-grid wrapper to fill
-// it — Meet sizes that wrapper in pixels from its reserved area, so growing <main> alone leaves
-// the tile top-anchored. The !important beats Meet's inline styles even as it rewrites them.
-function reclaimCaptionBand() {
-  if (document.getElementById(RECLAIM_LAYOUT_STYLE_ID)) return;
-  const style = document.createElement('style');
-  style.id = RECLAIM_LAYOUT_STYLE_ID;
-  style.textContent = [
-    'main { bottom: 88px !important; }',
-    'main > div.dkjMxf { inset: 0 !important; width: auto !important; height: auto !important; }',
-  ].join('\n');
-  document.head.appendChild(style);
-  // Nudge Meet to re-run its grid layout into the reclaimed space.
-  window.dispatchEvent(new Event('resize'));
 }
 
 function findCaptionSettingsButton(): HTMLElement | null {
@@ -267,9 +229,11 @@ export function useTranscription() {
 
     function observe(container: Element) {
       setCcStatus('active');
-      hideCaptionOverlay();
+      // Overlay stays native/visible (matches Tactiq — verified with the user 2026-08-31):
+      // the caption overlay shows over the video and Meet's native ~304px reservation is the
+      // expected layout. We only neutralize the CC button's active-pill styling so it reads
+      // as "off" like Tactiq, while captions keep running underneath so we can read them.
       neutralizeCcButton();
-      reclaimCaptionBand();
       if (!languageForced) {
         languageForced = true;
         forceCaptionLanguage(() => {});
