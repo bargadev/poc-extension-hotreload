@@ -4,22 +4,162 @@
   height: 100%;
   font-family: system-ui, sans-serif;
   color: #e0e0e0;
-  padding: 16px;
   box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* ── Tabs ── */
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 10px 8px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: color 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+}
+
+.sidebar-tab.active {
+  color: #e0e0e0;
+  border-bottom-color: #60a5fa;
+}
+
+.sidebar-tab:hover:not(.active) {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.sidebar-badge {
+  background: #60a5fa;
+  color: #0a0a0a;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 5px;
+  line-height: 1.4;
+}
+
+.sidebar-dot {
+  width: 5px;
+  height: 5px;
+  background: #6dcc6d;
+  border-radius: 50%;
+}
+
+/* ── Transcript ── */
+.transcript-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+
+.transcript-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.transcript-hint-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.5px;
+}
+
+.transcript-empty {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+  text-align: center;
+  padding-top: 32px;
+}
+
+.transcript-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.transcript-meta {
+  display: flex;
+  align-items: baseline;
   gap: 8px;
+}
+
+.transcript-speaker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.transcript-time {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+
+.transcript-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #d0d0d0;
+  word-break: break-word;
+}
+
+/* ── Notes ── */
+.notes-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  gap: 8px;
+  overflow: hidden;
 }
 
 .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .sidebar-title {
-  margin: 0;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .sidebar-saved {
