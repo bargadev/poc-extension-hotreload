@@ -296,6 +296,9 @@
         const id = ++nextChannelId;
         pc.createDataChannel('captions', { ordered: true, maxRetransmits: 10, id });
         console.log(`${TAG} ▶️ opened captions channel id=${id} — now sending the language command to start ASR`);
+        // Latch a flag too: this fires at document_start, before the React sidebar mounts
+        // its listener, so the event alone can be missed. The sidebar checks this on mount.
+        window.__captionsEnabled = true;
         document.dispatchEvent(new CustomEvent('meet:captions-enabled', { detail: { id } }));
         startLanguagePoll(); // opening the channel isn't enough — Meet needs the language command
       } catch (e) {

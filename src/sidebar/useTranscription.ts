@@ -126,6 +126,10 @@ export function useTranscription() {
     document.addEventListener('meet:roster', onRoster);
     document.addEventListener('meet:captions-enabled', onEnabled);
 
+    // The sniffer opens the channel at document_start, so meet:captions-enabled may have
+    // already fired before this listener mounted. Check the latched flag to catch that case.
+    if ((window as unknown as { __captionsEnabled?: boolean }).__captionsEnabled) onEnabled();
+
     // Until captions are flowing, poll for the CC toggle so the UI can prompt the user to
     // enable them (we never enable them ourselves in Fase 2).
     function tick() {
