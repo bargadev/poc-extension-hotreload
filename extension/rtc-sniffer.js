@@ -98,20 +98,24 @@
     });
   }
 
+  // Patch createDataChannel on the PROTOTYPE, not per-instance. Meet opens most of its
+  // channels (captions, media-session, dcrpc, …) via a path that bypasses an instance
+  // override — getStats() shows them alive with traffic while our old per-pc patch only
+  // ever saw `collections`. Patching the prototype catches every createDataChannel call
+  // no matter how Meet reaches it.
+  const protoCreate = Native.prototype.createDataChannel;
+  Native.prototype.createDataChannel = function (label, opts) {
+    const ch = protoCreate.call(this, label, opts);
+    attach(ch, 'local');
+    return ch;
+  };
+
   function Wrapped(...args) {
     const pc = new Native(...args);
     console.log(`${TAG} RTCPeerConnection created`);
 
     // Channels Meet opens on its side arrive via ondatachannel.
     pc.addEventListener('datachannel', (ev) => attach(ev.channel, 'remote'));
-
-    // Channels created locally (Meet or us) go through createDataChannel.
-    const nativeCreate = pc.createDataChannel.bind(pc);
-    pc.createDataChannel = (label, opts) => {
-      const ch = nativeCreate(label, opts);
-      attach(ch, 'local');
-      return ch;
-    };
 
     window.__rtcSniffPc = pc; // handy for manual poking in DevTools
     return pc;
