@@ -114,8 +114,17 @@ export function useTranscription() {
       );
     }
 
+    // Fase 3: the sniffer opened the captions channel itself (no CC click). Flip to
+    // 'active' right away so the UI doesn't nag "enable captions" while we wait for the
+    // first spoken words to arrive.
+    function onEnabled() {
+      activeRef.current = true;
+      setCcStatus('active');
+    }
+
     document.addEventListener('meet:caption', onCaption);
     document.addEventListener('meet:roster', onRoster);
+    document.addEventListener('meet:captions-enabled', onEnabled);
 
     // Until captions are flowing, poll for the CC toggle so the UI can prompt the user to
     // enable them (we never enable them ourselves in Fase 2).
@@ -131,6 +140,7 @@ export function useTranscription() {
       clearTimeout(timer);
       document.removeEventListener('meet:caption', onCaption);
       document.removeEventListener('meet:roster', onRoster);
+      document.removeEventListener('meet:captions-enabled', onEnabled);
     };
   }, []);
 

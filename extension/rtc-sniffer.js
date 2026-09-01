@@ -1,8 +1,11 @@
-// PoC: WebRTC caption sniffer (Tactiq-style mechanism).
+// PoC: WebRTC caption sniffer + enabler (Tactiq-style mechanism).
 // Runs in the MAIN world at document_start so it wraps RTCPeerConnection BEFORE
-// Google Meet instantiates its connection. Read-only: it only LOGS the data-channel
-// traffic so we can confirm captions flow over the "captions" channel and match the
-// protobuf we reverse-engineered (see TACTIQ_NOTES.md). It enables nothing yet.
+// Google Meet instantiates its connection. It (1) decodes the `captions` data channel and
+// bridges caption text + the participant roster to the sidebar, and (2) — Fase 3 — ENABLES
+// captions without the CC button by opening its own `captions` data channel on the SFU
+// peer connection (id 50000+), which is the signal Meet uses to start sending caption
+// packets. This bypasses the isTrusted gate on the CC toggle. See TACTIQ_NOTES.md.
+// Disable the auto-enable with `window.__rtcAutoCaptions = false` before joining.
 (() => {
   const TAG = '[RTC-SNIFF]';
   const Native = window.RTCPeerConnection;
@@ -152,6 +155,42 @@
     });
   }
 
+  // ── Fase 3: enable captions without the CC click ──────────────────────────────────
+  // The SFU peer connection is the one carrying Meet's session channels (media-session /
+  // collections). Opening a `captions` data channel on THAT pc — with a high, unused id
+  // (Tactiq starts at 50001 via `let s=5e4; ()=>++s`) — is the signal that makes Meet
+  // start streaming caption packets, with the CC button still off and no overlay.
+  const SFU_LABELS = new Set(['media-session', 'collections']);
+  let captionsPc = null;
+  let captionsOpened = false;
+  let nextChannelId = 50000; // ++ before use → first id is 50001, matching Tactiq
+
+  function openCaptionsWhenReady(pc) {
+    const tryOpen = () => {
+      if (captionsOpened || window.__rtcAutoCaptions === false) return;
+      if (pc.connectionState && pc.connectionState !== 'connected') return;
+      captionsOpened = true;
+      try {
+        const id = ++nextChannelId;
+        pc.createDataChannel('captions', { ordered: true, maxRetransmits: 10, id });
+        console.log(`${TAG} ▶️ opened captions channel id=${id} — enabling captions without the CC click`);
+        document.dispatchEvent(new CustomEvent('meet:captions-enabled', { detail: { id } }));
+      } catch (e) {
+        captionsOpened = false;
+        console.warn(`${TAG} could not open captions channel:`, e && e.message);
+      }
+    };
+    tryOpen();
+    pc.addEventListener('connectionstatechange', tryOpen);
+  }
+
+  function adoptSfuPc(pc, label) {
+    if (captionsPc || !SFU_LABELS.has(label)) return;
+    captionsPc = pc;
+    console.log(`${TAG} adopted SFU pc (saw «${label}») — will open captions channel`);
+    openCaptionsWhenReady(pc);
+  }
+
   // Patch createDataChannel on the PROTOTYPE, not per-instance. Meet opens most of its
   // channels (captions, media-session, dcrpc, …) via a path that bypasses an instance
   // override — getStats() shows them alive with traffic while our old per-pc patch only
@@ -161,6 +200,7 @@
   Native.prototype.createDataChannel = function (label, opts) {
     const ch = protoCreate.call(this, label, opts);
     attach(ch, 'local');
+    adoptSfuPc(this, label);
     return ch;
   };
 
@@ -191,7 +231,10 @@
     console.log(`${TAG} RTCPeerConnection created`);
 
     // Channels Meet opens on its side arrive via ondatachannel.
-    pc.addEventListener('datachannel', (ev) => attach(ev.channel, 'remote'));
+    pc.addEventListener('datachannel', (ev) => {
+      attach(ev.channel, 'remote');
+      adoptSfuPc(pc, ev.channel.label);
+    });
 
     window.__rtcSniffPc = pc; // handy for manual poking in DevTools
     return pc;
