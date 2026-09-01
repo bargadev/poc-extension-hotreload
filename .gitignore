@@ -1,3 +1,6 @@
 node_modules/
 lakonai-graph/
 extension/*.css
+
+# Local reverse-engineering notes (do not upload)
+TACTIQ_NOTES.md

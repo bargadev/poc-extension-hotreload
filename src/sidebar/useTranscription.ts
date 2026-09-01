@@ -30,20 +30,6 @@ const CC_TOGGLE_SELECTORS = [
   'button[jsname="RrG0hf"]',
 ];
 
-// The caption/meeting LANGUAGE selector, unlike the CC toggle, is NOT isTrusted-gated —
-// synthetic clicks on its options DO apply (verified live 2026-08). Meet defaults this to
-// English, which mis-transcribes Portuguese speech ("olá tudo bem" → "Hola to the bank"),
-// so we force the desired language the way Tactiq does.
-const CAPTION_LANGUAGE_LABEL   = 'Português (Brasil)';
-const OPEN_CC_SETTINGS_LABELS  = ['Abrir configurações de legenda', 'Open caption settings'];
-const LANGUAGE_OPTION_SELECTOR = `li[aria-label="${CAPTION_LANGUAGE_LABEL}"]`;
-
-// Captions must stay ON for us to read them, but Meet highlights the CC toolbar button
-// with a blue pill (bg rgb(168,199,250)) while active. Tactiq keeps the button looking
-// inactive, so we restyle it back to the neutral (transparent) toolbar look. The caption
-// overlay itself is left native/visible (matches Tactiq — confirmed with the user 2026-08-31).
-const CC_BUTTON_STYLE_ID = 'ext-neutralize-cc-button';
-
 function now(): string {
   return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
@@ -93,73 +79,6 @@ function findCcToggle(): HTMLButtonElement | null {
   return null;
 }
 
-/**
- * Best-effort: attempt to enable captions with a synthetic click.
- * Meet gates the real toggle on event.isTrusted, so this is usually a no-op — the
- * source of truth is whether the caption container subsequently appears. We fire it
- * at most once to avoid toggle-spam if a future Meet build ever honors the click.
- */
-function tryEnableCaptions(): boolean {
-  const btn = findCcToggle();
-  if (!btn) return false;
-  btn.click();
-  return true;
-}
-
-// Make the (still-active) CC button look inactive, like Tactiq: strip the blue active
-// pill and use the neutral toolbar icon color. Captions keep working underneath.
-function neutralizeCcButton() {
-  if (document.getElementById(CC_BUTTON_STYLE_ID)) return;
-  const style = document.createElement('style');
-  style.id = CC_BUTTON_STYLE_ID;
-  style.textContent = CC_TOGGLE_SELECTORS
-    .map((sel) => `${sel}, ${sel}:hover, ${sel}:focus`)
-    .join(', ') +
-    ' { background-color: transparent !important; color: #e3e3e3 !important; }';
-  document.head.appendChild(style);
-}
-
-function findCaptionSettingsButton(): HTMLElement | null {
-  const btns = document.querySelectorAll<HTMLElement>('button[aria-label]');
-  for (const b of btns) {
-    if (OPEN_CC_SETTINGS_LABELS.includes(b.getAttribute('aria-label') ?? '')) return b;
-  }
-  return null;
-}
-
-// Click the target-language option. Returns:
-//  'done'      — selected (or already selected)
-//  'not-ready' — the option isn't rendered yet (caption settings never opened)
-function selectCaptionLanguage(): 'done' | 'not-ready' {
-  const li = document.querySelector<HTMLElement>(LANGUAGE_OPTION_SELECTOR);
-  if (!li) return 'not-ready';
-  if (li.getAttribute('aria-selected') !== 'true') li.click();
-  return 'done';
-}
-
-// Force the caption language to CAPTION_LANGUAGE_LABEL (Tactiq-style). The option list is
-// only in the DOM once the caption-settings panel has rendered, so if it isn't there we
-// open the panel, pick the language, then close it again to keep the UI clean.
-// Runs at most once per active session (guarded by the caller).
-function forceCaptionLanguage(onDone: () => void) {
-  if (selectCaptionLanguage() === 'done') {
-    onDone();
-    return;
-  }
-  const settingsBtn = findCaptionSettingsButton();
-  if (!settingsBtn) {
-    onDone(); // can't reach it; leave language as-is
-    return;
-  }
-  settingsBtn.click(); // open panel → renders the language list
-  setTimeout(() => {
-    selectCaptionLanguage();
-    // Close the panel again (the same control toggles it).
-    findCaptionSettingsButton()?.click();
-    onDone();
-  }, 600);
-}
-
 function extractEntry(node: Element): { speaker: string; text: string } | null {
   // Never treat the whole caption region as a single entry — it contains Meet's
   // controls and every row at once.
@@ -204,8 +123,6 @@ export function useTranscription() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     let stopped = false;
-    let enableTried = false;
-    let languageForced = false;
 
     function upsertRow(row: Element) {
       const extracted = extractEntry(row);
@@ -229,15 +146,9 @@ export function useTranscription() {
 
     function observe(container: Element) {
       setCcStatus('active');
-      // Overlay stays native/visible (matches Tactiq — verified with the user 2026-08-31):
-      // the caption overlay shows over the video and Meet's native ~304px reservation is the
-      // expected layout. We only neutralize the CC button's active-pill styling so it reads
-      // as "off" like Tactiq, while captions keep running underneath so we can read them.
-      neutralizeCcButton();
-      if (!languageForced) {
-        languageForced = true;
-        forceCaptionLanguage(() => {});
-      }
+      // Passive reader: we do NOT touch Meet's caption UI (no auto-enable, no language
+      // forcing, no button restyle). We only read captions the user turned on themselves,
+      // so the meeting opens in Meet's own default state (captions off).
       observerRef.current?.disconnect();
 
       observerRef.current = new MutationObserver((mutations) => {
@@ -281,9 +192,9 @@ export function useTranscription() {
       );
     }
 
-    // Poll: once the caption container appears (user enabled CC), read from it.
-    // We make ONE best-effort auto-enable attempt; if Meet blocks it (it does), we
-    // fall through to 'needs-enable' so the UI prompts for a real click.
+    // Poll: once the caption container appears (user enabled CC themselves), read from it.
+    // We never enable captions ourselves — if the container isn't there we just wait and
+    // surface 'needs-enable' so the UI can prompt for a real click.
     function tick() {
       if (stopped) return;
 
@@ -293,16 +204,7 @@ export function useTranscription() {
         return; // observer takes over
       }
 
-      const toggle = findCcToggle();
-      if (!toggle) {
-        setCcStatus('searching');
-      } else {
-        if (!enableTried) {
-          enableTried = true;
-          tryEnableCaptions(); // no-op on current Meet (isTrusted), harmless
-        }
-        setCcStatus('needs-enable');
-      }
+      setCcStatus(findCcToggle() ? 'needs-enable' : 'searching');
 
       timer = setTimeout(tick, 1000);
     }

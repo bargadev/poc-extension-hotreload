@@ -17,6 +17,12 @@
       "matches": ["https://meet.google.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["rtc-sniffer.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ]
 }
