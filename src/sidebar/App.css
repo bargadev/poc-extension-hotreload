@@ -130,6 +130,17 @@
   flex-shrink: 0;
 }
 
+.transcript-chat-tag {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
 .transcript-text {
   margin: 0;
   font-size: 13px;

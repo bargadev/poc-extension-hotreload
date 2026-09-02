@@ -152,6 +152,45 @@
     return devices.filter((d) => (seen.has(d.deviceId) ? false : (seen.add(d.deviceId), true)));
   }
 
+  // Chat rides on the `meet_messages` channel ALONGSIDE speech. A chat packet is a
+  // BChatMessage — possibly buried under a few wrapper submessages:
+  //   BChatMessage{ f2 deviceId(str), f3 timestamp(int64), f5 BChatMessageText{ f1 value(str) } }
+  // We don't pin the wrapper depth: walk generically and return the first submessage that
+  // carries BOTH a device-path field (f2) AND a text submessage (f5→f1). The device-path
+  // (`spaces/…/devices/…`) is the strong signal that this is a real chat message and not a
+  // speech packet (which has no such field at this shape). Returns null for non-chat.
+  function parseChat(bytes) {
+    const u = new Uint8Array(bytes);
+    const td = new TextDecoder('utf-8', { fatal: false });
+    let found = null;
+    function walk(start, end, depth) {
+      if (depth > 8 || found) return;
+      let i = start;
+      let deviceId = null, timestamp = null, text = null;
+      const subs = [];
+      const rv = () => { let s = 0, r = 0; while (i < end) { const b = u[i++]; r += (b & 0x7f) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; } return r; };
+      while (i < end) {
+        const tag = rv(), field = tag >> 3, wire = tag & 7;
+        if (wire === 0) { const v = rv(); if (field === 3) timestamp = v; }
+        else if (wire === 1) i += 8;
+        else if (wire === 5) i += 4;
+        else if (wire === 2) {
+          const len = rv(), s2 = i, e2 = i + len;
+          if (e2 > end) break;
+          i = e2;
+          const str = td.decode(u.subarray(s2, e2));
+          if (field === 2 && DEVICE_RE.test(str)) deviceId = '@' + str.match(DEVICE_RE)[0];
+          else if (field === 5) { const t = pField(u.subarray(s2, e2), 1); if (t && t.wire === 2) text = td.decode(t.bytes); }
+          subs.push([s2, e2]);
+        } else break;
+      }
+      if (deviceId && text != null) { found = { deviceId, timestamp, text }; return; }
+      for (const [s2, e2] of subs) { try { walk(s2, e2, depth + 1); } catch { /* not a submessage */ } }
+    }
+    try { walk(0, u.length, 0); } catch { /* give up */ }
+    return found;
+  }
+
   function summarize(data) {
     if (typeof data === 'string') return { kind: 'string', len: data.length, sample: data.slice(0, 160) };
     const buf = data instanceof ArrayBuffer ? data : data?.buffer;
@@ -165,7 +204,47 @@
     // Fase 3: media-session carries the seq numbers our language command must match.
     if (channel.label === 'media-session') trackMediaSession(channel);
     channel.addEventListener('message', (ev) => {
+      // Chat is delivered on the `collections` channel (SyncMeetingSpaceCollections) for ALL
+      // participants — that is where other people's messages arrive. `meet_messages` only
+      // echoes our OWN sends, so it never carried Carol's chat (the earlier bug). Decode a
+      // BChatMessage from either channel and bridge it to the sidebar as meet:chat; collections
+      // is the source of record and meet_messages a redundant own-echo (deduped downstream).
+      // This mirrors Tactiq, which reads chat from the collection payload (`.l1.l2.l3.l4.message`).
+      if (channel.label === 'collections' || channel.label === 'meet_messages') {
+        try {
+          const b = ev.data instanceof ArrayBuffer ? ev.data : ev.data?.buffer;
+          if (b) {
+            const chat = parseChat(b);
+            if (chat && chat.text) {
+              console.log(`${TAG} 💬 [chat] dev=${chat.deviceId}:`, chat.text);
+              document.dispatchEvent(new CustomEvent('meet:chat', { detail: chat }));
+              return;
+            }
+          }
+        } catch { /* ignore */ }
+      }
       const info = summarize(ev.data);
+      // Roster arrives incrementally on data channels too (not just the initial fetch): a
+      // participant who joins late — or a second device of the same account — only shows up
+      // here. Harvest device→name pairs so captions from that device resolve to a real name
+      // instead of "Participante". Limited to the channels that carry roster state (skip the
+      // high-frequency media stats on media-session, which never carry names).
+      const rosterBearing = channel.label === 'collections' || channel.label === 'dcrpc' || channel.label === 'meet_messages';
+      if (info.kind === 'binary' && rosterBearing) {
+        try {
+          const b2 = ev.data instanceof ArrayBuffer ? ev.data : ev.data?.buffer;
+          const devs = b2 ? extractDevices(b2) : [];
+          if (devs.length) {
+            const map = (window.__meetRoster = window.__meetRoster || {});
+            let added = false;
+            for (const d of devs) { if (map[d.deviceId] !== d.deviceName) { map[d.deviceId] = d.deviceName; added = true; } }
+            if (added) {
+              console.log(`${TAG} 👥 roster+ [${channel.label}]`, devs);
+              document.dispatchEvent(new CustomEvent('meet:roster', { detail: { devices: devs } }));
+            }
+          }
+        } catch { /* ignore */ }
+      }
       if (info.captions && info.captions.length) {
         // Bridge MAIN → ISOLATED (the sidebar): the caption channel and the content-script
         // React app share this DOM `document`, so a CustomEvent here is heard there.

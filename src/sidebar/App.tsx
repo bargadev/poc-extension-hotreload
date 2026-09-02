@@ -106,6 +106,7 @@ export default function Sidebar() {
                   style={{ color: colorFor(entry.speaker) }}
                 >
                   {entry.speaker}
+                  {entry.kind === 'chat' && <span className="transcript-chat-tag"> (chat)</span>}
                 </span>
                 <span className="transcript-time">{entry.time}</span>
               </div>

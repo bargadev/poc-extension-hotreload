@@ -6,6 +6,7 @@ export interface TranscriptEntry {
   text: string;
   time: string;
   deviceId?: string; // WebRTC source: lets us re-label once the roster resolves the name
+  kind?: 'speech' | 'chat'; // chat messages ride the transcript too, marked distinctly
 }
 
 // The caption toggle in the toolbar. jsname="RrG0hf" is the toggle button itself.
@@ -26,9 +27,72 @@ interface CaptionDetail {
 interface RosterDetail {
   devices: { deviceId: string; deviceName: string }[];
 }
+interface ChatDetail {
+  deviceId: string;
+  timestamp?: number;
+  text: string;
+}
 
 function now(): string {
   return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Names are NOT in the WebRTC packets — only a deviceId (`spaces/…/devices/…`). The
+// SyncMeetingSpaceCollections fetch carries the roster, but Meet does NOT re-fetch it for
+// participants who join/rejoin LATER (device numbers climb on every rejoin), so late
+// speakers resolved to "Participante". The Meet DOM, however, always tags every rendered
+// tile with `data-participant-id="spaces/…/devices/…"` and embeds the display name in the
+// tile's action aria-labels ("Fixar <name> na tela principal", "Mais opções para <name>").
+// Reading that gives an authoritative, live-updating deviceId→name map for every visible
+// participant — the reliable source we key names on.
+const NAME_LABEL_PATTERNS = [
+  /^Fixar (.+?) na tela/i,
+  /^Desafixar (.+?) da tela/i,
+  /^Mais opções para (.+)$/i,
+  /^Pin (.+?) to/i,
+  /^Unpin (.+?) from/i,
+  /^More options for (.+)$/i,
+];
+
+function nameFromLabels(labels: string[]): string {
+  for (const l of labels) {
+    for (const re of NAME_LABEL_PATTERNS) {
+      const m = l.match(re);
+      if (m && m[1]) return m[1].trim();
+    }
+  }
+  return '';
+}
+
+// Walk up from a tile element collecting aria-labels until one yields a participant name.
+function nameForTile(start: Element): string {
+  let node: Element | null = start;
+  for (let up = 0; up < 6 && node; up++) {
+    const labels: string[] = [];
+    const self = node.getAttribute('aria-label');
+    if (self) labels.push(self);
+    node.querySelectorAll('[aria-label]').forEach((n) => {
+      const a = n.getAttribute('aria-label');
+      if (a) labels.push(a);
+    });
+    const nm = nameFromLabels(labels);
+    if (nm) return nm;
+    node = node.parentElement;
+  }
+  return '';
+}
+
+// Scan the Meet DOM for the current deviceId→name map. Keyed on the bare device path
+// (`spaces/…/devices/…`, no leading @) to match nameFor's normalization.
+function scanDomRoster(): Map<string, string> {
+  const map = new Map<string, string>();
+  document.querySelectorAll('[data-participant-id]').forEach((el) => {
+    const id = el.getAttribute('data-participant-id') || '';
+    if (!/devices\//.test(id) || map.has(id)) return;
+    const nm = nameForTile(el);
+    if (nm) map.set(id, nm);
+  });
+  return map;
 }
 
 function findCcToggle(): HTMLButtonElement | null {
@@ -73,6 +137,9 @@ export function useTranscription() {
   const msgMapRef = useRef<Map<string, string>>(new Map()); // "deviceId:messageId" → blockId
   const currentRef = useRef<{ blockId: string; deviceId: string } | null>(null);
   const activeRef = useRef(false);
+  // Dedup chat: the same packet can be redelivered and own sends echo on two channels.
+  // Key on deviceId + timestamp + text.
+  const chatSeenRef = useRef<Set<string>>(new Set());
 
   // Start a new block when the same speaker resumes after a gap this long (ms).
   const BLOCK_GAP_MS = 10_000;
@@ -93,6 +160,43 @@ export function useTranscription() {
       return r.get(deviceId) ?? r.get('@' + bare) ?? r.get(bare) ?? 'Participante';
     }
 
+    function isKnown(deviceId: string): boolean {
+      const r = rosterRef.current;
+      const bare = deviceId.replace(/^@/, '');
+      return r.has(deviceId) || r.has('@' + bare) || r.has(bare);
+    }
+
+    // Pull the latest deviceId→name map from the Meet DOM into rosterRef (DOM is
+    // authoritative — it overrides any stale/garbled name from the fetch/data-channel
+    // roster) and back-fill entries whose speaker was still unresolved.
+    function applyDomRoster() {
+      const dom = scanDomRoster();
+      if (!dom.size) return;
+      let changed = false;
+      for (const [id, nm] of dom) {
+        if (rosterRef.current.get(id) !== nm) {
+          rosterRef.current.set(id, nm);
+          changed = true;
+        }
+      }
+      if (!changed) return;
+      setEntries((prev) =>
+        prev.map((e) => {
+          if (!e.deviceId) return e;
+          const name = nameFor(e.deviceId);
+          return name !== e.speaker ? { ...e, speaker: name } : e;
+        }),
+      );
+    }
+
+    // Resolve a name for a device we're about to render. If it's not in the roster yet,
+    // scan the DOM on demand so a brand-new speaker's first caption already shows their real
+    // name instead of "Participante".
+    function resolveName(deviceId: string): string {
+      if (!isKnown(deviceId)) applyDomRoster();
+      return nameFor(deviceId);
+    }
+
     // One line per utterance segment (Tactiq shows each as its own paragraph under the
     // speaker header), newline-joined; App splits on \n to render separate paragraphs.
     function blockText(b: Block): string {
@@ -106,7 +210,7 @@ export function useTranscription() {
       activeRef.current = true;
       setCcStatus('active');
 
-      const speaker = nameFor(d.deviceId);
+      const speaker = resolveName(d.deviceId);
       const nowMs = Date.now();
       const key = d.deviceId + ':' + d.messageId; // messageId is per-device; scope it
       const knownBlockId = msgMapRef.current.get(key);
@@ -177,6 +281,33 @@ export function useTranscription() {
       );
     }
 
+    // A chat message the sniffer decoded off the WebRTC `collections` channel (everyone's
+    // chat, not just ours — Tactiq's source). It becomes its own standalone transcript entry
+    // (never merged into a speech block), marked kind:'chat' so the UI can flag it, so chat
+    // and speech interleave chronologically. Sender is resolved from the roster by deviceId,
+    // exactly like captions — so Carol's chat shows "Carol Damilano", never "Participante".
+    function onChat(ev: Event) {
+      const d = (ev as CustomEvent<ChatDetail>).detail;
+      if (!d || !d.text) return;
+
+      // Dedup: the same chat packet can be redelivered, and own sends echo on both channels.
+      const cid = d.deviceId + ':' + (d.timestamp ?? '') + ':' + d.text;
+      if (chatSeenRef.current.has(cid)) return;
+      chatSeenRef.current.add(cid);
+
+      activeRef.current = true;
+      setCcStatus('active');
+
+      // Chat interrupts the current speech block: the next spoken segment must open a fresh
+      // block rather than appending under a chat line.
+      currentRef.current = null;
+
+      setEntries((prev) => [
+        ...prev,
+        { id: uid(), speaker: resolveName(d.deviceId), text: d.text, time: now(), kind: 'chat' },
+      ]);
+    }
+
     // Fase 3: the sniffer opened the captions channel itself (no CC click). Flip to
     // 'active' right away so the UI doesn't nag "enable captions" while we wait for the
     // first spoken words to arrive.
@@ -187,6 +318,7 @@ export function useTranscription() {
 
     document.addEventListener('meet:caption', onCaption);
     document.addEventListener('meet:roster', onRoster);
+    document.addEventListener('meet:chat', onChat);
     document.addEventListener('meet:captions-enabled', onEnabled);
 
     // Race fix: the sniffer runs in the MAIN world at document_start and fires meet:roster
@@ -198,9 +330,15 @@ export function useTranscription() {
 
     // Until captions are flowing, poll for the CC toggle so the UI can prompt the user to
     // enable them (we never enable them ourselves in Fase 2).
+    // Seed the DOM roster immediately so names are ready before the first caption.
+    applyDomRoster();
+
     function tick() {
       if (stopped) return;
       if (!activeRef.current) setCcStatus(findCcToggle() ? 'needs-enable' : 'searching');
+      // Keep names fresh: participants join/rename/rejoin (new device numbers) mid-call, and
+      // the DOM reflects that live. Cheap for a normal-sized meeting.
+      applyDomRoster();
       timer = setTimeout(tick, 1000);
     }
     tick();
@@ -210,6 +348,7 @@ export function useTranscription() {
       clearTimeout(timer);
       document.removeEventListener('meet:caption', onCaption);
       document.removeEventListener('meet:roster', onRoster);
+      document.removeEventListener('meet:chat', onChat);
       document.removeEventListener('meet:captions-enabled', onEnabled);
     };
   }, []);
