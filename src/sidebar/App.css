@@ -138,6 +138,11 @@
   word-break: break-word;
 }
 
+/* Space consecutive utterances of the same speaker (Tactiq-style paragraphs). */
+.transcript-text + .transcript-text {
+  margin-top: 5px;
+}
+
 /* ── Notes ── */
 .notes-wrapper {
   flex: 1;

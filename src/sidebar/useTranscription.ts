@@ -56,11 +56,32 @@ export function useTranscription() {
   // roster the sniffer forwards. Captions can arrive before the roster, so names are
   // best-effort and back-filled when the roster shows up.
   const rosterRef = useRef<Map<string, string>>(new Map());
-  // messageId → { entry id, highest messageVersion seen }. Meet re-sends a speech turn
-  // with a rising messageVersion as it refines the text; we key by messageId and keep the
-  // latest version, replacing the entry's text in place (same idea Tactiq uses).
-  const msgMapRef = useRef<Map<number, { id: string; version: number }>>(new Map());
+  // Meet emits captions as a stream of segments: each segment has its own messageId and is
+  // refined in place via a rising messageVersion. During continuous speech it issues many
+  // messageIds in a row for the same speaker. We group consecutive same-speaker segments
+  // into ONE block (like Tactiq) instead of one row per segment, breaking a block only when
+  // the speaker changes or after a long pause.
+  //   blocksRef:  blockId → the block's segments (source of truth for its joined text)
+  //   msgMapRef:  "deviceId:messageId" → which block a refinement routes to
+  //   currentRef: the block new segments append to (null until the first caption)
+  // NOTE: messageId is NOT global — Meet numbers it per-device (each speaker restarts at a
+  // low value), so two speakers routinely share the same messageId. Routing MUST key on
+  // deviceId+messageId, or one speaker's refinement lands in the other's block.
+  interface Segment { messageId: number; version: number; text: string; lastTime: number }
+  interface Block { deviceId: string; lastTime: number; segments: Segment[] }
+  const blocksRef = useRef<Map<string, Block>>(new Map());
+  const msgMapRef = useRef<Map<string, string>>(new Map()); // "deviceId:messageId" → blockId
+  const currentRef = useRef<{ blockId: string; deviceId: string } | null>(null);
   const activeRef = useRef(false);
+
+  // Start a new block when the same speaker resumes after a gap this long (ms).
+  const BLOCK_GAP_MS = 10_000;
+  // Meet also REUSES a (device, messageId) after the speaker pauses and speaks again,
+  // replacing the text with an unrelated sentence (versions keep climbing, so it looks
+  // like a refinement). ASR revisions of the SAME utterance land within seconds; a reused
+  // id comes tens of seconds later. If a known segment hasn't been touched in this long,
+  // treat the next caption for it as a NEW turn instead of overwriting the old text.
+  const SEGMENT_REUSE_MS = 15_000;
 
   useEffect(() => {
     let stopped = false;
@@ -72,6 +93,12 @@ export function useTranscription() {
       return r.get(deviceId) ?? r.get('@' + bare) ?? r.get(bare) ?? 'Participante';
     }
 
+    // One line per utterance segment (Tactiq shows each as its own paragraph under the
+    // speaker header), newline-joined; App splits on \n to render separate paragraphs.
+    function blockText(b: Block): string {
+      return b.segments.map((s) => s.text.trim()).filter(Boolean).join('\n');
+    }
+
     function onCaption(ev: Event) {
       const d = (ev as CustomEvent<CaptionDetail>).detail;
       if (!d || !d.text) return;
@@ -80,20 +107,56 @@ export function useTranscription() {
       setCcStatus('active');
 
       const speaker = nameFor(d.deviceId);
-      const existing = msgMapRef.current.get(d.messageId);
+      const nowMs = Date.now();
+      const key = d.deviceId + ':' + d.messageId; // messageId is per-device; scope it
+      const knownBlockId = msgMapRef.current.get(key);
 
-      if (existing) {
-        if (d.messageVersion < existing.version) return; // stale refinement
-        existing.version = d.messageVersion;
-        setEntries((prev) =>
-          prev.map((e) => (e.id === existing.id ? { ...e, text: d.text, speaker } : e)),
-        );
+      // Refinement of a segment we've already seen: update its text in place, keep the
+      // highest version, and re-join the block it belongs to.
+      if (knownBlockId) {
+        const block = blocksRef.current.get(knownBlockId);
+        const seg = block?.segments.find((s) => s.messageId === d.messageId);
+        if (block && seg && nowMs - seg.lastTime <= SEGMENT_REUSE_MS) {
+          if (d.messageVersion < seg.version) return; // stale refinement
+          seg.version = d.messageVersion;
+          seg.text = d.text;
+          seg.lastTime = nowMs;
+          block.lastTime = nowMs;
+          const text = blockText(block);
+          setEntries((prev) => prev.map((e) => (e.id === knownBlockId ? { ...e, text, speaker } : e)));
+          return;
+        }
+        // Known id but the segment is stale (or gone): Meet reused this messageId for a new
+        // turn after a pause. Drop the mapping and fall through to open a fresh segment.
+        msgMapRef.current.delete(key);
+      }
+
+      // New segment. Append to the current block if it's the same speaker still talking;
+      // otherwise (speaker changed, or long pause) open a new block.
+      const cur = currentRef.current;
+      const curBlock = cur ? blocksRef.current.get(cur.blockId) : undefined;
+      const continues =
+        cur && curBlock && cur.deviceId === d.deviceId && nowMs - curBlock.lastTime <= BLOCK_GAP_MS;
+
+      if (continues && curBlock) {
+        curBlock.segments.push({ messageId: d.messageId, version: d.messageVersion, text: d.text, lastTime: nowMs });
+        curBlock.lastTime = nowMs;
+        msgMapRef.current.set(key, cur!.blockId);
+        const text = blockText(curBlock);
+        setEntries((prev) => prev.map((e) => (e.id === cur!.blockId ? { ...e, text, speaker } : e)));
       } else {
-        const id = uid();
-        msgMapRef.current.set(d.messageId, { id, version: d.messageVersion });
+        const blockId = uid();
+        const block: Block = {
+          deviceId: d.deviceId,
+          lastTime: nowMs,
+          segments: [{ messageId: d.messageId, version: d.messageVersion, text: d.text, lastTime: nowMs }],
+        };
+        blocksRef.current.set(blockId, block);
+        currentRef.current = { blockId, deviceId: d.deviceId };
+        msgMapRef.current.set(key, blockId);
         setEntries((prev) => [
           ...prev,
-          { id, speaker, text: d.text, time: now(), deviceId: d.deviceId },
+          { id: blockId, speaker, text: d.text, time: now(), deviceId: d.deviceId },
         ]);
       }
     }
@@ -126,9 +189,12 @@ export function useTranscription() {
     document.addEventListener('meet:roster', onRoster);
     document.addEventListener('meet:captions-enabled', onEnabled);
 
-    // The sniffer opens the channel at document_start, so meet:captions-enabled may have
-    // already fired before this listener mounted. Check the latched flag to catch that case.
-    if ((window as unknown as { __captionsEnabled?: boolean }).__captionsEnabled) onEnabled();
+    // Race fix: the sniffer runs in the MAIN world at document_start and fires meet:roster
+    // (from SyncMeetingSpaceCollections) and meet:captions-enabled at join time — before this
+    // hook mounts. The events are missed, so captions resolve to no name. We can't read the
+    // sniffer's window globals (MAIN and ISOLATED share the DOM, not window), so ask over the
+    // DOM: the sniffer listens for meet:request-state and replays the current roster + state.
+    document.dispatchEvent(new CustomEvent('meet:request-state'));
 
     // Until captions are flowing, poll for the CC toggle so the UI can prompt the user to
     // enable them (we never enable them ourselves in Fase 2).

@@ -109,7 +109,9 @@ export default function Sidebar() {
                 </span>
                 <span className="transcript-time">{entry.time}</span>
               </div>
-              <p className="transcript-text">{entry.text}</p>
+              {entry.text.split('\n').map((line, i) => (
+                <p key={i} className="transcript-text">{line}</p>
+              ))}
             </div>
           ))}
           <div ref={bottomRef} />

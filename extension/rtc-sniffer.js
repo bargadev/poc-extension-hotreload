@@ -170,7 +170,7 @@
         // Bridge MAIN → ISOLATED (the sidebar): the caption channel and the content-script
         // React app share this DOM `document`, so a CustomEvent here is heard there.
         for (const cap of info.captions) {
-          console.log(`${TAG} 📝 [${channel.label}] v${cap.messageVersion} dev=${cap.deviceId}:`, cap.text);
+          console.log(`${TAG} 📝 [${channel.label}] mid=${cap.messageId} v${cap.messageVersion} dev=${cap.deviceId}:`, cap.text);
           document.dispatchEvent(new CustomEvent('meet:caption', { detail: cap }));
         }
       } else if (info.text && info.text.length) {
@@ -285,6 +285,7 @@
   const SFU_LABELS = new Set(['media-session', 'collections']);
   let captionsPc = null;
   let captionsOpened = false;
+  let captionsChannel = null;
   let nextChannelId = 50000; // ++ before use → first id is 50001, matching Tactiq
 
   function openCaptionsWhenReady(pc) {
@@ -294,7 +295,8 @@
       captionsOpened = true;
       try {
         const id = ++nextChannelId;
-        pc.createDataChannel('captions', { ordered: true, maxRetransmits: 10, id });
+        captionsChannel = pc.createDataChannel('captions', { ordered: true, maxRetransmits: 10, id });
+        captionsChannel.addEventListener('close', () => console.log(`${TAG} ⏹️ captions channel id=${id} CLOSED`));
         console.log(`${TAG} ▶️ opened captions channel id=${id} — now sending the language command to start ASR`);
         // Latch a flag too: this fires at document_start, before the React sidebar mounts
         // its listener, so the event alone can be missed. The sidebar checks this on mount.
@@ -344,6 +346,12 @@
           const devices = extractDevices(bytes);
           if (devices.length) {
             console.log(`${TAG} 👥 roster (${devices.length})`, devices);
+            // Latch the accumulated roster on window: these fetches land at join time, before
+            // the React sidebar mounts its meet:roster listener, so the event alone is missed
+            // and captions (which arrive later) resolve to no name. The sidebar seeds itself
+            // from this map on mount; the event still delivers live updates afterwards.
+            const map = (window.__meetRoster = window.__meetRoster || {});
+            for (const d of devices) map[d.deviceId] = d.deviceName;
             document.dispatchEvent(new CustomEvent('meet:roster', { detail: { devices } }));
           }
         } catch { /* not base64 / not the roster shape */ }
@@ -351,6 +359,35 @@
     }
     return p;
   };
+
+  // The sidebar (ISOLATED world) mounts after we've already fired meet:roster and
+  // meet:captions-enabled at join time, and it can't read our MAIN-world window globals —
+  // only the shared DOM. So when it asks (meet:request-state on mount), replay current state.
+  document.addEventListener('meet:request-state', () => {
+    const map = window.__meetRoster;
+    if (map) {
+      const devices = Object.keys(map).map((deviceId) => ({ deviceId, deviceName: map[deviceId] }));
+      if (devices.length) document.dispatchEvent(new CustomEvent('meet:roster', { detail: { devices } }));
+    }
+    if (window.__captionsEnabled) document.dispatchEvent(new CustomEvent('meet:captions-enabled', { detail: {} }));
+  });
+
+  // Meet idles caption ASR while the tab is hidden and doesn't resume it on return: our
+  // captions were enabled over the data channel (not the CC toggle), so Meet's UI-driven
+  // "resume on visible" never fires. Re-assert when the tab becomes visible again: reopen
+  // the captions channel if it closed, and re-send the language command (msLastOp/msLastAck
+  // stay live via trackMediaSession, so the next seq is correct).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || window.__rtcAutoCaptions === false) return;
+    const st = captionsChannel && captionsChannel.readyState;
+    console.log(`${TAG} 👁️ visible again — captions channel readyState=${st}`);
+    if (captionsPc && st !== 'open') {
+      captionsOpened = false;
+      openCaptionsWhenReady(captionsPc);
+    }
+    langEnabled = false;
+    startLanguagePoll();
+  });
 
   function Wrapped(...args) {
     const pc = new Native(...args);
